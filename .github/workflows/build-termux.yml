@@ -28,8 +28,10 @@ env:
   UPSTREAM: anomalyco/opencode
   BUN_VERSION: "1.4.4"
   # The commit `patch/opencode-custom-connect.patch` was last verified against.
-  # Bump this (and re-test) rather than tracking a moving branch.
-  UPSTREAM_SHA: "d0cffe1"
+  # Bump this (and re-test) rather than tracking a moving branch. Must be a
+  # currently-reachable commit: GitHub will not serve an arbitrary bare SHA.
+  # Verified clean on both d0cffe1 and 144438a.
+  UPSTREAM_SHA: "144438a"
 
 jobs:
   build:
@@ -53,17 +55,53 @@ jobs:
           git init -q upstream
           cd upstream
           git remote add origin "https://github.com/${UPSTREAM}.git"
-          # Try the ref directly; fall back to fetching it unadorned (works for SHAs).
-          git fetch -q --depth 1 origin "${{ steps.ref.outputs.ref }}" \
-            || git fetch -q --depth 1 origin "${{ steps.ref.outputs.ref }}:refs/heads/build"
-          git checkout -q FETCH_HEAD
-          echo "upstream commit: $(git rev-parse --short HEAD)"
+          REF="${{ steps.ref.outputs.ref }}"
+          reached=0
+
+          # 1. Branch or tag name: a plain shallow fetch works.
+          if git fetch -q --depth 1 origin "$REF" 2>/dev/null; then
+            git checkout -q FETCH_HEAD
+            reached=1
+            echo "fetched $REF directly"
+          fi
+
+          # 2. A bare SHA: upload-pack will not accept a want-line for an
+          #    unadvertised commit, so fetch dev shallow and deepen until it
+          #    appears in history.
+          if [ "$reached" -eq 0 ]; then
+            git fetch -q --depth 1 origin dev
+            for d in 100 500 2000 10000; do
+              if git cat-file -e "${REF}^{commit}" 2>/dev/null; then break; fi
+              git fetch -q --deepen "$d" origin dev || break
+            done
+            if git cat-file -e "${REF}^{commit}" 2>/dev/null; then
+              git checkout -q "$REF"
+              reached=1
+              echo "deepened until $REF was reachable"
+            fi
+          fi
+
+          # 3. Pinned commit has aged out of reachable history: build dev tip,
+          #    but say so, and let the patch check below decide if that is safe.
+          if [ "$reached" -eq 0 ]; then
+            echo "::warning::$REF is not reachable upstream; building the tip of dev instead"
+            git checkout -q FETCH_HEAD
+          fi
+
+          echo "upstream commit: $(git rev-parse HEAD)"
 
       - name: Apply the custom /connect patch
         run: |
           cd upstream
-          git apply --verbose "$GITHUB_WORKSPACE/patch/opencode-custom-connect.patch"
+          # Fail loudly if upstream moved in a way that breaks the patch, rather
+          # than shipping a binary without the change.
+          if ! git apply --check "$GITHUB_WORKSPACE/patch/opencode-custom-connect.patch"; then
+            echo "::error::patch no longer applies to $(git rev-parse --short HEAD). Re-verify it against this commit."
+            exit 1
+          fi
+          git apply "$GITHUB_WORKSPACE/patch/opencode-custom-connect.patch"
           test -f packages/tui/src/component/dialog-custom-connect.tsx || { echo "::error::patch did not land"; exit 1; }
+          echo "patch applied; dialog present"
 
       - name: Set up Bun
         uses: oven-sh/setup-bun@v2
