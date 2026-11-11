@@ -145,7 +145,10 @@ jobs:
       - name: Package
         run: |
           mkdir -p out
-          cp upstream/packages/cli/dist/opencode-linux-arm64/bin/opencode out/opencode
+          BIN="$(find upstream/packages/cli/dist -maxdepth 3 -name opencode -type f -print -quit)"
+          test -n "$BIN" || { echo "::error::build output missing"; exit 1; }
+          echo "packaging $BIN"
+          cp "$BIN" out/opencode
           chmod +x out/opencode
           tar -czf "out/opencode-termux-aarch64.tar.gz" -C out opencode
           sha256sum out/opencode-termux-aarch64.tar.gz | tee out/SHA256SUMS
