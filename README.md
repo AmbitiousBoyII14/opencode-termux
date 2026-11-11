@@ -58,60 +58,47 @@ changing anything.
 
 ---
 
-## On your computer (only if you want `/connect` itself changed)
+## The build is already done
 
-Everything above gives you opencode on Termux pointed at your endpoint. The only
-thing it does **not** do is change what happens when you type `/connect` *inside*
-the app — that still shows the provider catalogue.
+The patched binary is built and attached to a release — you do not need to run
+CI, tag anything, or push anything.
 
-To change that too, you need the patched build. This is optional.
+<https://github.com/AmbitiousBoyII14/opencode-termux/releases/tag/v1.0.0>
 
-### 1. Push this repo
+| | |
+|---|---|
+| file | `opencode-termux-aarch64.tar.gz` |
+| size | 91 MB compressed, 218 MB unpacked |
+| sha256 | see `SHA256SUMS` in the same release |
+| built from | upstream `144438a` + `patch/opencode-custom-connect.patch` |
+| verified | `Machine: AArch64`, patch strings present in the binary |
 
-You need a GitHub token with `repo` and `workflow` scopes:
-<https://github.com/settings/tokens>
+To install it, jump to step 4 below.
 
-```bash
-export GITHUB_TOKEN=ghp_yourtoken
-cd oc-termux-repo
-./push.sh YOUR_GITHUB_USERNAME opencode-termux
-```
+---
 
-Wait for it to print `pushed: https://github.com/YOUR_USERNAME/opencode-termux`.
-The script stamps your username into the installer paths, so step 2 on your phone
-will point at your repo.
-
-### 2. Run the build
-
-On github.com, open your new repo → **Actions** → **build-termux** → **Run
-workflow** → **Run workflow**.
-
-Takes about 15 minutes. Cross-compiles aarch64 on an x64 runner, which is the only
-place it can be built — it needs more than 2 GB RAM.
-
-### 3. Tag a release
-
-When the run is green, back in **Actions** the artifact exists but isn't
-downloadable by a URL yet. Tag it:
-
-```bash
-cd oc-termux-repo
-git tag v1.0.0
-git push origin v1.0.0
-```
-
-That triggers another run and attaches `opencode-termux-aarch64.tar.gz` to a
-Release. Now `termux/install.sh` has something to download.
-
-### 4. Install the patched one on your phone
+## Installing the patched build
 
 ```bash
 pkg install -y glibc-repo && pkg update && pkg install -y glibc glibc-runner
-curl -fsSL https://raw.githubusercontent.com/YOUR_USERNAME/opencode-termux/main/termux/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/AmbitiousBoyII14/opencode-termux/main/termux/install.sh | bash
 opencode
 ```
 
-Now `/connect` opens the custom-endpoint form.
+Now `/connect` opens the custom-endpoint form instead of the provider catalogue.
+
+### Rebuilding it yourself (optional)
+
+Only useful if you want to change the patch. Pushing a `v*` tag triggers the
+workflow and attaches a fresh release; you can also run it from the Actions tab
+with a custom `upstream_ref`.
+
+```bash
+export GITHUB_TOKEN=ghp_…
+cd oc-termux-repo
+./push.sh YOUR_USERNAME opencode-termux     # only if you forked it
+git tag v1.0.1 && git push origin v1.0.1    # build + attach to a release
+```
 
 ---
 
@@ -122,10 +109,10 @@ opencode --version     # works?
 opencode-custom show   # which endpoint is it pointing at?
 ```
 
-| you have | `opencode` | `/connect` inside the app |
+| you installed | `opencode` | `/connect` inside the app |
 |---|---|---|
-| steps 1–3 above | works | provider catalogue |
-| + the optional build | works | custom form |
+| stock (steps 1–3) | works | provider catalogue |
+| patched (release above) | works | custom form |
 
 ---
 
