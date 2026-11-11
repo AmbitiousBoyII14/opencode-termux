@@ -149,3 +149,35 @@ real 32,768 window and reserves 16,000 tokens (49%) before you start. Separately
 ```
 
 `opencode.jsonc` fixes the window. The tool-round cap is server-side.
+
+---
+
+## Current server prompt (replacement)
+
+`levi-system-prompt.md` is the text to put in the server-side system prompt, at
+whatever place `LEVI -> Levi Assistant Active` is defined. That is the only place
+the header and the one-round cap can be removed at the source.
+
+If you would rather not touch the server, the proxy delivers the same text through
+the user role, which the server does obey:
+
+```bash
+python ~/levi-proxy.py --upstream "https://your-host/v1" --port 8899 \
+  --strip-canned --no-replace \
+  --inject-user ~/levi-system-prompt.md
+```
+
+`--no-replace` is deliberate: this prompt tells the model to open with its own
+banner, so the proxy should not add another. It still removes the server's
+`LEVI -> ...` line wherever it lands near the top of a reply — verified:
+
+```
+in : "say ready"
+out: "L ×\n\nReady."
+```
+
+### One note on the emoji
+
+`🫟` is U+1FADF, which Unicode leaves **unassigned**. It will render as a blank box
+on most devices. Nearby assigned options if you want one that renders: 🫠 🫡 🫧 🫨.
+Left as written in `levi-system-prompt.md`, since that is your text.

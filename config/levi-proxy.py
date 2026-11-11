@@ -56,17 +56,30 @@ CONFIG = argparse.Namespace(
 )
 
 
-def strip_header(text: str) -> tuple[str, bool]:
-    """Remove a leading LEVI header line. Returns (text, had_header)."""
+def strip_header(text: str, lookahead: int = 4) -> tuple[str, bool]:
+    """Remove a server-injected LEVI header line.
+
+    The header is not always first: a prompt that tells the model to open with
+    its own banner puts a line above it, e.g.
+
+        L ×
+        LEVI -> Levi Assistant Active 🧬
+        Ready.
+
+    so scan the first few lines rather than only the first.
+    """
     had = False
     lines = text.split("\n")
-    while lines and HEADER_RE.match(lines[0]):
-        lines.pop(0)
-        had = True
-    # A header may be followed by one blank line; keep the body tight.
-    while lines and lines[0].strip() == "":
-        lines.pop(0)
-    return "\n".join(lines), had
+    out: list[str] = []
+    for i, line in enumerate(lines):
+        if i < lookahead and HEADER_RE.match(line):
+            had = True
+            continue          # drop it wherever it appears near the top
+        out.append(line)
+    # Collapse the blank lines a removed header leaves behind.
+    while out and out[0].strip() == "":
+        out.pop(0)
+    return "\n".join(out), had
 
 
 def strip_canned(text: str) -> str:
