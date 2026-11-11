@@ -63,7 +63,7 @@ changing anything.
 The patched binary is built and attached to a release — you do not need to run
 CI, tag anything, or push anything.
 
-<https://github.com/AmbitiousBoyII14/opencode-termux/releases/tag/v1.0.0>
+<https://github.com/AmbitiousBoyII14/opencode-termux/releases/tag/v1.0.1>
 
 | | |
 |---|---|
@@ -71,7 +71,7 @@ CI, tag anything, or push anything.
 | size | 91 MB compressed, 218 MB unpacked |
 | sha256 | see `SHA256SUMS` in the same release |
 | built from | upstream `144438a` + `patch/opencode-custom-connect.patch` |
-| verified | `Machine: AArch64`, patch strings present in the binary |
+| verified | `Machine: AArch64`, custom-endpoint strings present, ELF interpreter pre-pointed at Termux's glibc loader |
 
 To install it, jump to step 4 below.
 
@@ -125,17 +125,60 @@ opencode-custom show   # which endpoint is it pointing at?
 | `Bad system call` | Android 10/11 blocking a syscall | `pkg install glibc-runner`, then reboot |
 | API calls all fail | no `resolv.conf` | re-run `install-opencode.sh` |
 | `Unsupported package for custom/…:` | config is in the old v1 shape | delete `~/.config/opencode/opencode.jsonc` and run `opencode-custom` again |
+| `Server process exited with code 127` / `serve: cannot open shared object file` | binary was run through the loader, so it cannot re-exec itself | `pkg install patchelf` then run `termux/fix-serve.sh`, or install v1.0.1+ |
 | `jq: not found` | missing | `pkg install jq` |
 | right username missing in URLs | `AmbitiousBoyII14/opencode-termux` wasn't stamped | run `./push.sh` on your computer, or edit the URLs by hand |
 
 ---
+
+## The `serve` exit-127 bug (fixed in v1.0.1)
+
+If you installed v1.0.0 you saw this on every launch:
+
+```
+Starting background server...
+Error: Server process exited with code 127
+serve: error while loading shared libraries: serve: cannot open shared object file
+```
+
+**Cause.** The launcher ran the binary by hand through the loader:
+
+```bash
+ld-linux-aarch64.so.1 --library-path ... opencode.real
+```
+
+Under that, `process.execPath` is the **loader**, not opencode. opencode re-execs
+itself to start its background server (`selfCommand()` → `serve --service`), so it
+ran `ld-linux-aarch64.so.1 serve --service` — and the loader tried to open `serve`
+as a shared library. Exit 127.
+
+**Fix.** Don't invoke the loader manually. Point the binary's own ELF interpreter
+at the loader and let the kernel do it:
+
+```bash
+patchelf --set-interpreter "$PREFIX/glibc/lib/ld-linux-aarch64.so.1" \
+         --set-rpath "$PREFIX/glibc/lib" \
+         "$PREFIX/share/opencode/opencode.real"
+```
+
+Now `process.execPath` is the binary, and `exec` of `serve` works normally.
+
+**Already installed?** Don't re-download 91 MB — patch in place:
+
+```bash
+pkg install patchelf
+curl -fsSL https://raw.githubusercontent.com/AmbitiousBoyII14/opencode-termux/main/termux/fix-serve.sh | bash
+```
+
+The CI build now bakes this in, so v1.0.1+ needs no `patchelf` on the device.
 
 ## What's in here
 
 ```
 termux/install-opencode.sh   installs stock opencode for Termux   <- step 2
 termux/opencode-custom       endpoint wrapper                     <- step 3
-termux/install.sh            installs the PATCHED build           <- optional step 4
+termux/install.sh            installs the PATCHED build           <- step 4
+termux/fix-serve.sh          repairs an existing v1.0.0 install
 patch/opencode-custom-connect.patch   the only source change
 .github/workflows/build-termux.yml    the CI build
 push.sh                      creates the repo and pushes

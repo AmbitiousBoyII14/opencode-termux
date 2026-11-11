@@ -153,7 +153,7 @@ cat <<EOF
 $(printf "%b" "$G")done$(printf "%b" "$N")
 
   Run it:
-    cd ~/some/project
+    mkdir -p ~/code && cd ~/code   # any folder you like
     opencode
 
   Then type /connect and give it a base URL, API key and model.
