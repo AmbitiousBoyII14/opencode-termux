@@ -32,6 +32,8 @@ env:
   # currently-reachable commit: GitHub will not serve an arbitrary bare SHA.
   # Verified clean on both d0cffe1 and 144438a.
   UPSTREAM_SHA: "144438a"
+  # Where Termux keeps the glibc loader/rpath.
+  TERMUX_GLIBC: /data/data/com.termux/files/usr/glibc/lib
 
 jobs:
   build:
@@ -141,6 +143,22 @@ jobs:
           readelf -d "$BIN" | grep NEEDED
           # refuse to ship anything that is not aarch64
           readelf -h "$BIN" | grep -q "AArch64" || { echo "::error::not an aarch64 binary"; exit 1; }
+
+      - name: Set the ELF interpreter to Termux's glibc loader
+        working-directory: upstream/packages/cli
+        run: |
+          BIN="$(find dist -maxdepth 3 -name opencode -type f -print -quit)"
+          test -n "$BIN" || { echo "::error::build output missing"; exit 1; }
+          # Running the binary through `ld-linux --library-path ...` makes
+          # process.execPath the loader, which breaks opencode's self-respawn
+          # for its background server (`serve` -> exit 127). Pointing the ELF
+          # interpreter at the loader lets the kernel do it, so execPath is the
+          # binary. Patched here so the artifact works without extra tooling.
+          sudo apt-get install -y -qq patchelf >/dev/null
+          patchelf --set-interpreter "$TERMUX_GLIBC/ld-linux-aarch64.so.1" \
+                   --set-rpath "$TERMUX_GLIBC" "$BIN"
+          grep -aq "$TERMUX_GLIBC/ld-linux-aarch64.so.1" "$BIN" || { echo "::error::patchelf did not take"; exit 1; }
+          file "$BIN"
 
       - name: Package
         run: |
