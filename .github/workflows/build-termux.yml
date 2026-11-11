@@ -134,7 +134,7 @@ jobs:
       - name: Verify the artifact is really aarch64
         working-directory: upstream/packages/cli
         run: |
-          BIN=dist/opencode-linux-arm64/bin/opencode
+          BIN="$(find dist -maxdepth 3 -name opencode -type f -print -quit)"
           test -x "$BIN" || { echo "::error::binary missing"; exit 1; }
           file "$BIN"
           readelf -h "$BIN" | grep -E "Machine|Class"
