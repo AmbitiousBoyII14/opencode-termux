@@ -115,21 +115,21 @@ jobs:
       - name: Build aarch64 (glibc, for Termux via glibc-runner)
         working-directory: upstream/packages/cli
         env:
-          # build.ts takes the target as an env var, not a flag.
-          # Format is `cli-<os>-<arch>` (targetName() builds it from those parts).
-          OPENCODE_TARGET: cli-linux-arm64
+          # build.ts takes the target as an env var, not a flag. It compares
+          # against targetName(), which is `<os>-<arch>` — no "cli-" prefix.
+          OPENCODE_TARGET: linux-arm64
           BUN_COMPILE_RELEASE: bun-v${{ env.BUN_VERSION }}
           GH_TOKEN: ${{ github.token }}
         run: |
           # Do NOT pass --skip-install: it is what pulls the arm64 native packages
           # (@opencui/core, @opencode/pty) that get embedded in the binary.
           bun run script/build.ts --skip-web-ui
-          ls -la dist/cli-linux-arm64/bin/
+          ls -la dist/opencode-linux-arm64/bin/
 
       - name: Verify the artifact is really aarch64
         working-directory: upstream/packages/cli
         run: |
-          BIN=dist/cli-linux-arm64/bin/opencode
+          BIN=dist/opencode-linux-arm64/bin/opencode
           test -x "$BIN" || { echo "::error::binary missing"; exit 1; }
           file "$BIN"
           readelf -h "$BIN" | grep -E "Machine|Class"
@@ -140,7 +140,7 @@ jobs:
       - name: Package
         run: |
           mkdir -p out
-          cp upstream/packages/cli/dist/cli-linux-arm64/bin/opencode out/opencode
+          cp upstream/packages/cli/dist/opencode-linux-arm64/bin/opencode out/opencode
           chmod +x out/opencode
           tar -czf "out/opencode-termux-aarch64.tar.gz" -C out opencode
           sha256sum out/opencode-termux-aarch64.tar.gz | tee out/SHA256SUMS
