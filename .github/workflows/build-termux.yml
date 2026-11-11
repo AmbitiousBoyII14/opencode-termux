@@ -124,7 +124,12 @@ jobs:
           # Do NOT pass --skip-install: it is what pulls the arm64 native packages
           # (@opencui/core, @opencode/pty) that get embedded in the binary.
           bun run script/build.ts --skip-web-ui
-          ls -la dist/opencode-linux-arm64/bin/
+          # build.ts renames the target by replacing the binary name with
+          # "cli", so the directory is dist/cli-linux-arm64 even though
+          # OPENCODE_TARGET is linux-arm64. Discover it rather than assume.
+          find dist -maxdepth 3 -name opencode -type f -print
+          test -n "$(find dist -maxdepth 3 -name opencode -type f -print -quit)" || {
+            echo "::error::no opencode binary under dist"; ls -la dist || true; exit 1; }
 
       - name: Verify the artifact is really aarch64
         working-directory: upstream/packages/cli
