@@ -1,0 +1,54 @@
+{
+  // opencode config for a small-window OpenAI-compatible endpoint.
+  // Install: cp opencode.jsonc ~/.config/opencode/opencode.jsonc
+  // Then edit baseURL and apiKey.
+  //
+  // Response-style rules do NOT go here — see AGENTS.md in this folder.
+  // Verified: `agent.<name>.system` is accepted without error but does not
+  // reach the model. Instructions in AGENTS.md do.
+
+  "$schema": "https://opencode.ai/config.json",
+
+  "providers": {
+    "custom": {
+      "name": "Custom",
+      "package": "@opencode/ai/providers/openai-compatible",
+      "settings": {
+        "baseURL": "https://your-host/v1", // <-- EDIT
+        "apiKey": "sk-…"                   // <-- EDIT
+      },
+      "models": {
+        "glm-4.7-flash": {
+          "name": "glm-4.7-flash",
+          "package": "@opencode/ai/providers/openai-compatible",
+          // ── the important part ──────────────────────────────────────────
+          // Your endpoint reports 32768, but declares nothing, so opencode
+          // assumes 200000. With a 32k window assumed as 200k, its compaction
+          // logic reserves 16000 tokens — 49% of your real window — before the
+          // conversation starts (RESERVE_MIN in session/compaction.ts).
+          // Declaring the real window sizes everything correctly.
+          "limit": {
+            "context": 32768,
+            // Stop opencode asking for more reply than the endpoint will give.
+            "output": 8192
+          }
+        }
+      }
+    }
+  },
+
+  "model": { "providerID": "custom", "model": "glm-4.7-flash" },
+
+  "agent": {
+    "build": {
+      // Agentic iterations before opencode appends "maximum steps reached,
+      // respond with text only" and forces a text-only turn.
+      "steps": 200
+    }
+  },
+
+  "compact": {
+    // Summarise as the window nears full, rather than after the provider 400s.
+    "auto": true
+  }
+}

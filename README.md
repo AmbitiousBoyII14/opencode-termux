@@ -172,6 +172,18 @@ curl -fsSL https://raw.githubusercontent.com/AmbitiousBoyII14/opencode-termux/ma
 
 The CI build now bakes this in, so v1.0.1+ needs no `patchelf` on the device.
 
+## It behaves like it has amnesia and stops mid-task
+
+Read [`config/README.md`](config/README.md). Short version:
+
+- The `LEVI -> 🔎` header on every reply comes from **your model server**, not
+  opencode — a raw `curl` reproduces it. A system message removes it, but
+  `agent.system` in config does not reach the model, so put the rules in
+  `config/AGENTS.md`.
+- Your endpoint declares **no context length**, so opencode assumes 200,000 while
+  the real window is 32,768 — and reserves 16,000 tokens (49%) before you start.
+  `config/opencode.jsonc` fixes that with an explicit `limit.context`.
+
 ## What's in here
 
 ```
@@ -182,6 +194,9 @@ termux/fix-serve.sh          repairs an existing v1.0.0 install
 patch/opencode-custom-connect.patch   the only source change
 .github/workflows/build-termux.yml    the CI build
 push.sh                      creates the repo and pushes
+config/opencode.jsonc        small-window + step-limit config
+config/AGENTS.md             response-style rules for the model
+config/README.md             why it behaves that way
 wrapper/README.md            notes on the wrapper
 ```
 
