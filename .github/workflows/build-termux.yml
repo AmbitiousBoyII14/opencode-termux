@@ -1,0 +1,139 @@
+name: build-termux
+
+# Builds the patched opencode aarch64 binary for Termux and attaches it to a release.
+#
+# Two workflows in one file:
+#   - workflow_dispatch  -> build only, binary as a downloadable artifact
+#   - push a tag v*      -> build and attach to a GitHub Release
+#
+# The runner is a normal Ubuntu x64 box: `bun build --compile --target=bun-linux-arm64`
+# cross-compiles fine, and everything native (pty, @opentui/core) is pulled from npm
+# for the arm64/gnu pair by the build script itself.
+
+on:
+  workflow_dispatch:
+    inputs:
+      upstream_ref:
+        description: "Upstream opencode ref (branch, tag or SHA). Default is the SHA this patch was verified against."
+        required: false
+        default: ""
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+env:
+  UPSTREAM: anomalyco/opencode
+  BUN_VERSION: "1.4.4"
+  # The commit `patch/opencode-custom-connect.patch` was last verified against.
+  # Bump this (and re-test) rather than tracking a moving branch.
+  UPSTREAM_SHA: "d0cffe1"
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+
+    steps:
+      - name: Check out this fork
+        uses: actions/checkout@v4
+
+      - name: Resolve upstream ref
+        id: ref
+        run: |
+          REF="${{ github.event.inputs.upstream_ref }}"
+          if [ -z "$REF" ]; then REF="${UPSTREAM_SHA}"; fi
+          echo "ref=$REF" >> "$GITHUB_OUTPUT"
+          echo "building on upstream $REF"
+
+      - name: Fetch upstream source
+        run: |
+          git init -q upstream
+          cd upstream
+          git remote add origin "https://github.com/${UPSTREAM}.git"
+          # Try the ref directly; fall back to fetching it unadorned (works for SHAs).
+          git fetch -q --depth 1 origin "${{ steps.ref.outputs.ref }}" \
+            || git fetch -q --depth 1 origin "${{ steps.ref.outputs.ref }}:refs/heads/build"
+          git checkout -q FETCH_HEAD
+          echo "upstream commit: $(git rev-parse --short HEAD)"
+
+      - name: Apply the custom /connect patch
+        run: |
+          cd upstream
+          git apply --verbose "$GITHUB_WORKSPACE/patch/opencode-custom-connect.patch"
+          test -f packages/tui/src/component/dialog-custom-connect.tsx || { echo "::error::patch did not land"; exit 1; }
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+
+      - name: Install dependencies
+        working-directory: upstream
+        run: bun install
+
+      - name: Build aarch64 (glibc, for Termux via glibc-runner)
+        working-directory: upstream/packages/cli
+        env:
+          # build.ts takes the target as an env var, not a flag.
+          # Format is `cli-<os>-<arch>` (targetName() builds it from those parts).
+          OPENCODE_TARGET: cli-linux-arm64
+          BUN_COMPILE_RELEASE: bun-v${{ env.BUN_VERSION }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # Do NOT pass --skip-install: it is what pulls the arm64 native packages
+          # (@opencui/core, @opencode/pty) that get embedded in the binary.
+          bun run script/build.ts --skip-web-ui
+          ls -la dist/cli-linux-arm64/bin/
+
+      - name: Verify the artifact is really aarch64
+        working-directory: upstream/packages/cli
+        run: |
+          BIN=dist/cli-linux-arm64/bin/opencode
+          test -x "$BIN" || { echo "::error::binary missing"; exit 1; }
+          file "$BIN"
+          readelf -h "$BIN" | grep -E "Machine|Class"
+          readelf -d "$BIN" | grep NEEDED
+          # refuse to ship anything that is not aarch64
+          readelf -h "$BIN" | grep -q "AArch64" || { echo "::error::not an aarch64 binary"; exit 1; }
+
+      - name: Package
+        run: |
+          mkdir -p out
+          cp upstream/packages/cli/dist/cli-linux-arm64/bin/opencode out/opencode
+          chmod +x out/opencode
+          tar -czf "out/opencode-termux-aarch64.tar.gz" -C out opencode
+          sha256sum out/opencode-termux-aarch64.tar.gz | tee out/SHA256SUMS
+          du -h out/*
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: opencode-termux-aarch64
+          path: out/*
+          if-no-files-found: error
+
+      - name: Attach to release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            out/opencode-termux-aarch64.tar.gz
+            out/SHA256SUMS
+          generate_release_notes: true
+          body: |
+            Patched opencode for Termux (aarch64, Android 9+).
+
+            `opencode-custom-connect.patch` applied on top of upstream
+            `${{ steps.ref.outputs.ref }}` @ `${{ github.sha }}`.
+            `/connect` opens a custom-endpoint form instead of the provider catalogue.
+
+            **Install**
+
+            ```bash
+            pkg install glibc-repo
+            pkg update && pkg install glibc glibc-runner
+            curl -fsSL https://raw.githubusercontent.com/${{ github.repository }}/main/termux/install.sh | bash
+            ```

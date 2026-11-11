@@ -1,0 +1,185 @@
+#!/data/data/com.termux/files/usr/bin/bash
+# opencode-custom — run opencode against your own OpenAI-compatible endpoint.
+#
+# No build, no fork, no patched binary. It writes the same config the /connect
+# dialog would write, then launches whatever `opencode` is already on your PATH.
+#
+#   opencode-custom                          ask for base URL, key, model; then launch
+#   opencode-custom set <url> <key> <model>  non-interactive
+#   opencode-custom show                     print the current endpoint
+#   opencode-custom model <id>               switch model, keep the endpoint
+#   opencode-custom -- <args>                pass args straight to opencode
+#
+set -euo pipefail
+
+CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/opencode"
+CONFIG="$CONFIG_DIR/opencode.jsonc"
+PROVIDER="custom"
+PACKAGE="@opencode/ai/providers/openai-compatible"
+
+R='\033[0;31m'; G='\033[0;32m'; Y='\033[0;33m'; B='\033[0;34m'; D='\033[2m'; N='\033[0m'
+say()  { printf "%b==>%b %s\n" "$B" "$N" "$*"; }
+ok()   { printf "%b ✓%b %s\n" "$G" "$N" "$*"; }
+warn() { printf "%b !%b %s\n" "$Y" "$N" "$*"; }
+die()  { printf "%b ✗%b %s\n" "$R" "$N" "$*" >&2; exit 1; }
+
+need_jq() {
+  command -v jq >/dev/null 2>&1 && return
+  warn "jq is required to edit the config safely"
+  if command -v pkg >/dev/null 2>&1; then
+    read -r -p "    install jq now? [Y/n] " a
+    case "${a:-Y}" in
+      [Yy]*) pkg install -y jq >/dev/null 2>&1 || die "pkg install jq failed" ;;
+      *) die "install jq and re-run: pkg install jq" ;;
+    esac
+  else
+    die "install jq (apt install jq / brew install jq) and re-run"
+  fi
+}
+
+# ── config helpers ───────────────────────────────────────────────────────────
+read_config() {
+  if [ -f "$CONFIG" ]; then cat "$CONFIG"; else echo '{}'; fi
+}
+
+# write_provider <baseURL> <apiKey> <model>
+write_provider() {
+  local base="$1" key="$2" model="$3"
+  mkdir -p "$CONFIG_DIR"
+  local tmp; tmp="$(mktemp)"
+  read_config | jq --arg p "$PROVIDER" --arg pkg "$PACKAGE" \
+                   --arg url "$base" --arg key "$key" --arg m "$model" '
+    .providers = (.providers // {})
+    | .providers[$p] = (
+        (.providers[$p] // {})
+        | .name = (.name // "Custom")
+        | .package = (.package // $pkg)
+        | .settings = ((.settings // {}) | .baseURL = $url | if $key != "" then .apiKey = $key else . end)
+        | .models = ((.models // {}) | .[$m] = ((.[$m] // {}) | .name = ($m) | .package = $pkg))
+      )
+    | .model = { providerID: $p, model: $m }
+  ' > "$tmp" || { rm -f "$tmp"; die "could not update config (is it valid JSON/JSONC?)"; }
+  mv "$tmp" "$CONFIG"
+  chmod 600 "$CONFIG" 2>/dev/null || true
+}
+
+show_config() {
+  if [ ! -f "$CONFIG" ]; then
+    warn "no config at $CONFIG"
+    return
+  fi
+  read_config | jq -r --arg p "$PROVIDER" '
+    (.providers[$p].settings // {}) as $s
+    | "  endpoint  \($s.baseURL // "(none)")",
+      "  api key   \(if ($s.apiKey // "") != "" then "set" else "none" end)",
+      "  model     \(.model.model // "(none)")",
+      "  config    " + (env.HERE // "")
+  ' 2>/dev/null || warn "could not parse $CONFIG"
+  printf "  %b%s%b\n" "$D" "$CONFIG" "$N"
+}
+
+# ── the interactive flow ─────────────────────────────────────────────────────
+ask() {
+  local label="$1" default="$2" secret="${3:-no}" reply
+  if [ "$secret" = "yes" ]; then
+    printf "  %s: " "$label" >&2
+    IFS= read -rs reply || true
+    printf "\n" >&2
+  else
+    if [ -n "$default" ]; then
+      printf "  %s [%b%s%b]: " "$label" "$D" "$default" "$N" >&2
+    else
+      printf "  %s: " "$label" >&2
+    fi
+    IFS= read -r reply || true
+  fi
+  printf '%s' "${reply:-$default}"
+}
+
+current_base() { [ -f "$CONFIG" ] && read_config | jq -r --arg p "$PROVIDER" '.providers[$p].settings.baseURL // ""' 2>/dev/null || true; }
+current_model() { [ -f "$CONFIG" ] && read_config | jq -r '.model.model // ""' 2>/dev/null || true; }
+
+interactive() {
+  local cur_base cur_model base key model
+  cur_base="$(current_base)"; cur_model="$(current_model)"
+
+  printf "\n  %b▌%b %bConnect a custom endpoint%b\n" "$B" "$N" "$(printf '\033[1m')" "$N"
+  printf "  %bAny OpenAI-compatible API. Nothing else to choose.%b\n\n" "$D" "$N"
+
+  base="$(ask "base URL" "${cur_base:-https://host/v1}")"
+  [ -n "$base" ] || die "a base URL is required"
+
+  case "$base" in
+    http://*|https://*) ;;
+    *) base="https://$base"; warn "no scheme given, using $base" ;;
+  esac
+  base="${base%/}"
+
+  key="$(ask "api key (blank keeps the current one)" "" yes)"
+  model="$(ask "model ID" "${cur_model:-glm-4.7-flash}")"
+  [ -n "$model" ] || die "a model ID is required"
+
+  write_provider "$base" "$key" "$model"
+  printf "\n"
+  ok "saved"
+  printf "    endpoint  %s\n    model     %s\n\n" "$base" "$model"
+}
+
+# ── entry ────────────────────────────────────────────────────────────────────
+cmd="${1:-}"
+
+case "$cmd" in
+  -h|--help|help)
+    sed -n '2,12p' "$0" | sed 's/^# \?//'
+    exit 0
+    ;;
+  show)
+    need_jq; show_config; exit 0
+    ;;
+  set)
+    need_jq
+    [ $# -ge 4 ] || die "usage: opencode-custom set <baseURL> <apiKey> <model>"
+    base="${2%/}"
+    case "$base" in http://*|https://*) ;; *) base="https://$base" ;; esac
+    write_provider "$base" "$3" "$4"
+    ok "saved $base / $4"
+    exit 0
+    ;;
+  model)
+    need_jq
+    [ $# -ge 2 ] || die "usage: opencode-custom model <id>"
+    [ -f "$CONFIG" ] || die "run 'opencode-custom' first to set an endpoint"
+    base="$(current_base)"
+    [ -n "$base" ] || die "no endpoint saved yet"
+    key="$(read_config | jq -r --arg p "$PROVIDER" '.providers[$p].settings.apiKey // ""')"
+    write_provider "$base" "$key" "$2"
+    ok "model -> $2"
+    exit 0
+    ;;
+  --)
+    shift
+    ;;
+  "")
+    need_jq
+    if [ ! -f "$CONFIG" ] || [ -z "$(current_base)" ]; then
+      interactive
+    else
+      printf "\n  %b▌%b connected: %b%s%b  ·  %b%s%b\n" \
+        "$B" "$N" "$(printf '\033[1m')" "$(current_model)" "$N" "$D" "$(current_base)" "$N"
+      printf "  %bchange it? [y/N] %b" "$D" "$N"
+      IFS= read -r change || true
+      case "${change:-N}" in
+        [Yy]*) interactive ;;
+      esac
+    fi
+    ;;
+  *)
+    # anything else is an opencode arg
+    ;;
+esac
+
+# ── launch ───────────────────────────────────────────────────────────────────
+command -v opencode >/dev/null 2>&1 || die "opencode not found on PATH"
+
+model="$(current_model)"
+[ -n "$model" ] && exec opencode --model "$PROVIDER/$model" "$@" || exec opencode "$@"
