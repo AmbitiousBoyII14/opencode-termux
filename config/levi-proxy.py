@@ -307,20 +307,20 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 text += piece
                 held.append(obj)
 
-                # Decide only when the first line can no longer become a header.
-                # "LEVI -> Levi Assistant Active" streams in fragments, so a
-                # partial "LEV" must be held, while plain prose can go at once.
+                # Decide only when the header can no longer be arriving.
+                # A prompt may make the model open with its own banner, pushing
+                # the server's "LEVI -> ..." onto line 2, and that line itself
+                # streams in fragments. One newline is therefore NOT enough:
+                # "L x\nLEVI -> Levi Assis" would be stripped mid-word, leaving
+                # "ant Active". Wait for several lines, or for clearly-prose early
+                # text, and only fall back on a size cap.
                 head = text.upper().lstrip()
-                if "\n" in text:
-                    ready = True                      # first line is complete
-                elif "LEVI".startswith(head[:4]) and len(head) < 4:
-                    ready = False                     # still could be "LEVI"
-                elif head.startswith("LEVI"):
-                    ready = False                     # header in progress
-                elif len(head) >= 4:
-                    ready = True                      # definitely prose
-                elif len(text) > 2000:
-                    ready = True                      # safety valve
+                if text.count("\n") >= 3:
+                    ready = True                 # enough lines to judge
+                elif len(text) > 600:
+                    ready = True                 # safety valve
+                elif "LEVI" not in head and len(head) >= 12:
+                    ready = True                 # prose, no header possible
                 else:
                     ready = False
 

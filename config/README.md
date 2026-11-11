@@ -152,6 +152,24 @@ real 32,768 window and reserves 16,000 tokens (49%) before you start. Separately
 
 ---
 
+## Can the proxy replace the server prompt? No.
+
+The server exposes exactly these routes, from its own `/openapi.json`:
+
+```
+GET  /                        GET  /v1/models
+GET  /health                  POST /v1/chat/completions
+GET  /vram                    POST /chat
+GET  /events                  POST /upload      (files only)
+```
+
+There is no endpoint that reads or writes the system prompt, no admin route, and
+`/upload` takes `files` for a multipart form — it is not a config setter. So the
+prompt cannot be changed from outside. Only its owner can edit it, on the box.
+
+What the proxy does instead: removes the server's injected line from the reply and
+delivers your prompt through the user role, which the server does honour.
+
 ## Current server prompt (replacement)
 
 `levi-system-prompt.md` is the text to put in the server-side system prompt, at
