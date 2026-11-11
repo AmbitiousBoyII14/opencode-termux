@@ -52,6 +52,7 @@ CONFIG = argparse.Namespace(
     header=DEFAULT_HEADER,
     replace=True,
     strip_canned=False,
+    inject_user="",
 )
 
 
@@ -165,6 +166,16 @@ class Handler(http.server.BaseHTTPRequestHandler):
             return
 
         session_start = is_session_start(payload)
+
+        # The server ignores the system role, but honours the user role. Deliver
+        # the persona by prepending it to the first user message instead.
+        if CONFIG.inject_user and session_start:
+            for msg in payload.get("messages") or []:
+                if msg.get("role") == "user" and isinstance(msg.get("content"), str):
+                    if CONFIG.inject_user.strip() not in msg["content"]:
+                        msg["content"] = CONFIG.inject_user.strip() + "\n\n---\n\n" + msg["content"]
+                    break
+            raw = json.dumps(payload).encode()
 
         try:
             with self._forward(raw) as r:
@@ -327,12 +338,18 @@ def main():
     ap.add_argument("--header", default=DEFAULT_HEADER)
     ap.add_argument("--strip-canned", action="store_true")
     ap.add_argument("--no-replace", action="store_true")
+    ap.add_argument("--inject-user", metavar="FILE",
+                    help="prepend FILE to the first user message (works when the "
+                         "server ignores the system role)")
     a = ap.parse_args()
 
     CONFIG.upstream = a.upstream
     CONFIG.header = a.header
     CONFIG.replace = not a.no_replace
     CONFIG.strip_canned = a.strip_canned
+    if a.inject_user:
+        CONFIG.inject_user = open(a.inject_user, encoding="utf-8").read()
+        print(f"inject      {a.inject_user} ({len(CONFIG.inject_user)} chars -> first user message)")
 
     print(f"levi-proxy  {a.upstream}  ->  http://127.0.0.1:{a.port}/v1")
     print(f"header      {a.header!r}")

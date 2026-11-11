@@ -37,6 +37,24 @@ is defined. Nothing shipped in a config file can win that race.
 
 ---
 
+## Your endpoint runs its own agent
+
+This is the thing that explains everything else. The server ignores the request
+shape and runs its own agent loop with its own tools:
+
+```
+Levi 👾 -> Activated 👾!
+(stopped after 6 tool rounds)
+⟢ run_command {"cmd": "cd /tmp && git clone --depth 1 https://github.com/LGLTeam/... "}
+```
+
+opencode sent no tools at all. The server added them, ran them on its own machine,
+and capped itself at 6 rounds. It also ignores the `system` role, which is why
+every prompt I gave you did nothing.
+
+**What does work: the user role.** The same prompt appended to the first user
+message is obeyed — tested, it read both repos. That is what `--inject-user` does.
+
 ## The fix that works without server access: `levi-proxy.py`
 
 A small local proxy that strips the header from the stream and replaces it with
@@ -54,7 +72,8 @@ Terminal 1 — run the proxy:
 python ~/levi-proxy.py \
   --upstream "https://your-host/v1" \
   --port 8899 \
-  --strip-canned
+  --strip-canned \
+  --inject-user ~/levi-prompt.txt
 ```
 
 Terminal 2 — point opencode at it. In `~/.config/opencode/opencode.jsonc`:
@@ -75,6 +94,7 @@ Then `opencode` as normal.
 | `--header "..."` | replacement first line (default `Levi 👾 -> Activated 👾!`) |
 | `--strip-canned` | also drop the "Awaiting target specification." + numbered list |
 | `--no-replace` | remove the header, inject nothing |
+| `--inject-user FILE` | prepend FILE to the first user message — **required**, because the server ignores the system role |
 | `--port` | default 8787 |
 
 ---
