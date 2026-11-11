@@ -36,7 +36,7 @@ if [ ! -x "$GLIBC/ld-linux-aarch64.so.1" ]; then
   warn "not present — installing (one-time, ~200 MB)"
   pkg install -y glibc-repo   >/dev/null 2>&1 || die "could not install glibc-repo"
   pkg update -y               >/dev/null 2>&1 || true
-  pkg install -y glibc glibc-runner >/dev/null 2>&1 || die "could not install glibc"
+  pkg install -y glibc glibc-runner patchelf >/dev/null 2>&1 || die "could not install glibc"
 fi
 [ -x "$GLIBC/ld-linux-aarch64.so.1" ] || die "glibc loader still missing"
 ok "glibc present"
@@ -58,6 +58,12 @@ mkdir -p "$PREFIX/share/opencode"
 install -m 755 "$TMP/opencode" "$BIN"
 ok "binary installed ($(du -h "$BIN" | cut -f1))"
 
+say "pointing the ELF interpreter at Termux's glibc loader"
+command -v patchelf >/dev/null || die "patchelf missing — pkg install patchelf"
+patchelf --set-interpreter "$GLIBC/ld-linux-aarch64.so.1" --set-rpath "$GLIBC" "$BIN"
+grep -aq "$GLIBC/ld-linux-aarch64.so.1" "$BIN" || die "patchelf did not take"
+ok "interpreter patched"
+
 # ── 4. launcher ──────────────────────────────────────────────────────────────
 say "writing launcher"
 cat > "$PREFIX/bin/opencode" <<'LAUNCHER'
@@ -76,9 +82,11 @@ BIN="$PREFIX/share/opencode/opencode.real"
 export TMPDIR="${TMPDIR:-$PREFIX/tmp}"   # Android has no /tmp
 mkdir -p "$TMPDIR"
 
-LD_LIBRARY_PATH="$GLIBC" \
-LD_PRELOAD= \
-  exec "$GLIBC/ld-linux-aarch64.so.1" --library-path "$GLIBC" "$BIN" "$@"
+# Do NOT exec through the loader: process.execPath would become the loader and
+# opencode could not re-exec itself (`serve`) for its background server.
+export LD_PRELOAD=
+unset LD_LIBRARY_PATH || true
+exec "$BIN" "$@"
 LAUNCHER
 chmod 755 "$PREFIX/bin/opencode"
 ok "$PREFIX/bin/opencode"

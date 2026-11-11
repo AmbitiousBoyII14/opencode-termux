@@ -82,6 +82,23 @@ mkdir -p "$PREFIX/share/opencode"
 install -m 755 "$TMP/opencode" "$PREFIX/share/opencode/opencode.real"
 ok "installed binary ($(du -h "$PREFIX/share/opencode/opencode.real" | cut -f1))"
 
+# Point the binary's own ELF interpreter at Termux's glibc loader. Running it as
+# `ld-linux ... binary` instead would make process.execPath the loader, which
+# breaks opencode's self-respawn for its background server (`serve`).
+say "pointing the ELF interpreter at Termux's glibc loader"
+if command -v patchelf >/dev/null; then
+  patchelf --set-interpreter "$GLIBC/ld-linux-aarch64.so.1" \
+           --set-rpath "$GLIBC" \
+           "$PREFIX/share/opencode/opencode.real"
+  # readelf -l shows the section name, not the path, so grep the binary.
+  grep -aq "$GLIBC/ld-linux-aarch64.so.1" "$PREFIX/share/opencode/opencode.real" \
+    || die "patchelf did not take — the background server will not start"
+  ok "interpreter patched"
+else
+  warn "patchelf missing — background server will not start"
+  warn "run: pkg install patchelf && then re-run this installer"
+fi
+
 # ── launcher ─────────────────────────────────────────────────────────────────
 # Two rules keep glibc from poisoning the rest of the shell:
 #   * LD_PRELOAD is dropped — Termux sets it to bionic libs that the glibc loader rejects
@@ -104,12 +121,12 @@ BIN="$PREFIX/share/opencode/opencode.real"
 export TMPDIR="${TMPDIR:-$PREFIX/tmp}"
 mkdir -p "$TMPDIR"
 
-# Keep the user's real terminal description; Termux reports `xterm-256color` already.
-LD_LIBRARY_PATH="$GLIBC" \
-LD_PRELOAD= \
-  exec "$GLIBC/ld-linux-aarch64.so.1" \
-    --library-path "$GLIBC" \
-    "$BIN" "$@"
+# Do NOT run through the loader by hand: process.execPath would become the
+# loader, and opencode re-execs itself (`serve`) for its background server.
+# The binary's ELF interpreter already points at glibc, so exec it directly.
+export LD_PRELOAD=
+unset LD_LIBRARY_PATH || true
+exec "$BIN" "$@"
 LAUNCHER
 chmod 755 "$PREFIX/bin/opencode"
 ok "$PREFIX/bin/opencode"
