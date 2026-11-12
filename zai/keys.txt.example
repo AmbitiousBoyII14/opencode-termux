@@ -1,0 +1,21 @@
+# Add ONE OR MORE of these. Order of preference is fixed in levi-proxy.py:
+# gemini -> nvidia -> mistral -> deepseek -> zai
+#
+# Fastest free option (recommended):
+#   https://aistudio.google.com/apikey   -> "Create API key", no card
+gemini=PASTE_GEMINI_KEY_HERE
+
+# Free, 82 models, phone verification:
+#   https://build.nvidia.com  -> any model page -> "Get API Key"
+#nvidia=nvapi-XXXX
+
+# Free 128K context:
+#   https://console.mistral.ai/api-keys
+#mistral=XXXX
+
+# Paid but very cheap (~$0.003/M on cache hits, very fast):
+#   https://platform.deepseek.com/api_keys
+#deepseek=sk-XXXX
+
+# Current one - free but 40-140s per request:
+zai=ccf5870abae14fca9207070761af063e.FCXeTBk3a9O1ra3R
