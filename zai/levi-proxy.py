@@ -40,9 +40,11 @@ PROVIDERS = {
         "gemini-2.5-flash",
         {},
     ),
+    # Only model that answers on the free key. Measured 0.6-2.9s.
+    # Other catalogue entries 404/410/503 - see NVIDIA-NOTES.md
     "nvidia": (
         "https://integrate.api.nvidia.com/v1/chat/completions",
-        "z-ai/glm-5.3-flash",
+        "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning",
         {},
     ),
     "mistral": (
@@ -63,7 +65,7 @@ PROVIDERS = {
 }
 
 # tried first-to-last; z.ai last because it's slow
-ORDER = ["gemini", "nvidia", "mistral", "deepseek", "zai"]
+ORDER = ["nvidia", "gemini", "mistral", "deepseek", "zai"]
 
 
 def _load_keys():
