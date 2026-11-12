@@ -1,0 +1,23 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "provider": {
+    "levi": {
+      "npm": "@ai-sdk/openai-compatible",
+      "name": "Levi (Modal CPU)",
+      "options": {
+        "baseURL": "https://syamthandasawoni--levi-serve.us-east.modal.run/v1",
+        "apiKey": "levi-4bb104bd2859e7461506db47fc40d0d5350e25e1"
+      },
+      "models": {
+        "glm-4.7-flash": {
+          "name": "GLM-4.7-Flash Q4_K_M",
+          "limit": {
+            "context": 8192,
+            "output": 2048
+          }
+        }
+      }
+    }
+  },
+  "model": "levi/glm-4.7-flash"
+}
