@@ -24,7 +24,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 UPSTREAM = "https://api.z.ai/api/paas/v4/chat/completions"
 MODEL = "glm-4.7-flash"
 PORT = int(os.environ.get("ZAI_PROXY_PORT", "8080"))
-MAX_RETRIES = 8
+MAX_RETRIES = 12
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 
@@ -106,7 +106,12 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(400, {"error": {"message": "bad json"}})
 
         msgs = body.get("messages") or []
-        if SYSTEM_PROMPT and not any(m.get("role") == "system" for m in msgs):
+        # ALWAYS own the system message. opencode sends its own harness prompt
+        # ("You are opencode, an AI coding agent...") which buries Levi's persona.
+        # Observed: model introduced itself as "an AI assistant running in
+        # OpenCode" instead of using the L x opener. Replace, don't append.
+        if SYSTEM_PROMPT:
+            msgs = [m for m in msgs if m.get("role") != "system"]
             msgs.insert(0, {"role": "system", "content": SYSTEM_PROMPT})
         body["messages"] = msgs
         body.setdefault("model", MODEL)
@@ -150,7 +155,7 @@ class Handler(BaseHTTPRequestHandler):
                 return self._stream(resp)
             return self._send(200, resp.read())
 
-        self._send(503, {"error": {"message": "z.ai busy after retries (code 1305)"}})
+        self._send(503, {"error": {"message": "z.ai free tier busy - try again in a moment (code 1305)", "code": 1305}})
 
 
 if __name__ == "__main__":
