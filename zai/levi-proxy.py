@@ -44,7 +44,7 @@ PROVIDERS = {
     # Other catalogue entries 404/410/503 - see NVIDIA-NOTES.md
     "nvidia": (
         "https://integrate.api.nvidia.com/v1/chat/completions",
-        "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning",
+        "nvidia/nemotron-3-ultra-550b-a55b",   # best answer quality, 1-9s
         {},
     ),
     "mistral": (
