@@ -49,6 +49,15 @@ cat > "$OCDIR/opencode.json" <<'JSON'
 JSON
 echo "    $OCDIR/opencode.json"
 
+echo "==> autostart"
+curl -fsSL -o "$DIR/start.sh" "$RAW/start.sh" && chmod +x "$DIR/start.sh"
+curl -fsSL -o "$DIR/boot.sh" "$RAW/boot.sh" && chmod +x "$DIR/boot.sh"
+mkdir -p "$HOME/.termux/boot" && cp "$DIR/boot.sh" "$HOME/.termux/boot/levi-proxy" && chmod +x "$HOME/.termux/boot/levi-proxy"
+if ! grep -q "zai/start.sh" "$HOME/.bashrc" 2>/dev/null; then
+  printf '\n# Levi proxy\n[ -x "$HOME/zai/start.sh" ] && "$HOME/zai/start.sh" >/dev/null 2>&1\n' >> "$HOME/.bashrc"
+fi
+echo "    boot hook + .bashrc hook installed"
+
 echo "==> starting proxy"
 pkill -f levi-proxy.py 2>/dev/null || true
 pkill -f zai-proxy.py 2>/dev/null || true
@@ -78,7 +87,7 @@ if [ -n "$R" ]; then
   echo "==================================================="
   echo
   echo " open opencode - Levi is already selected."
-  echo " restart proxy: cd ~/zai && nohup python3 levi-proxy.py > levi.log 2>&1 &"
+  echo " restart proxy: ~/zai/start.sh   (or just open a new Termux shell)"
 else
   echo "    !! no reply"; tail -20 "$DIR/levi.log"; exit 1
 fi

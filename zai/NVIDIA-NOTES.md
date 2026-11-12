@@ -1,77 +1,79 @@
-# NVIDIA NIM — what actually works on a free key
+# NVIDIA free key — full catalogue sweep
 
-Tested 2026-11-12 with a real `nvapi-` key. The catalogue advertises 83 models.
-On this account **exactly one answered**.
+**You were right, I was wrong.** My first pass tested 10 models and concluded
+"only Nemotron Nano works". A complete sweep of all **83** models found **15**
+that respond. Tested 2026-11-12, free `nvapi-` key.
 
-## Working
+## Working chat models
+
+| model | first-token latency | content | verdict |
+|---|---|---|---|
+| **nvidia/nemotron-3-ultra-550b-a55b** | **0.6–1.8s** | always full | **← default now** |
+| nvidia/nemotron-3-nano-omni-30b-a3b-reasoning | 0.8–2.9s | full | previous default |
+| nvidia/nemotron-3.5-super-vl-120b-a12b | 1.0s | full | vision-capable |
+| nvidia/nemotron-3.5-lightning-30b-a3b | 3.3s | full | fastest *variant* name, not fastest |
+| minimaxai/minimax-m3.1-flash | 0.8s | **sometimes empty** | 0 reasoning, unreliable |
+| mistralai/mistral-large-4-1t-a52b | 24.9s | full | too slow |
+| nvidia/nemotron-3.5-bolt-e4b | 0.3s | full | small |
+| poolside/laguna-xs-2.1 | 0.2s | full | small, coding-focused |
+| nvidia/ising-calibration-1.5-31b | 29.3s | full | too slow |
+| nvidia/riva-translate-4b-instruct-v2 | 0.3s | echoes input | translation only |
+| stepfun-ai/step-5-preview | 1.2s | empty on probe | untested |
+| openai/gpt-oss-20b | 88.5s | empty | effectively broken |
+
+Special-purpose (not chat): `meta/llama-guard-4-12b`,
+`nvidia/llama-3.1-nemotron-safety-guard-8b-v3`, `nvidia/nemotron-parse-2.0`,
+`nvidia/nemotron-3-embed-*`, `nvidia/nvclip`.
+
+## Failures
 
 ```
-nvidia/nemotron-3-nano-omni-30b-a3b-reasoning
+404  60 models   "Function '<uuid>': Not found for account"
+500   2 models   internal error
+400   1 model    nemotron-parse (needs image input, not text)
+timeout 3 models deepseek-v4.1-flash, llama-3.2-90b-vision, nemoguard-content-safety
 ```
 
-30B total / 3B active MoE — same class as GLM-4.7-Flash. Different family, but it
-follows the prompt correctly.
+**The 404s are the answer to "is only one model free".** The message is
+`Not found for account` — the catalogue is global, but a free key is provisioned
+a subset. 60 of 83 aren't assigned to this account at all.
 
-Measured through the proxy:
+**DeepSeek on NVIDIA: not available.** Both `deepseek-v4.1-flash` and
+`deepseek-coder-6.7b-instruct` are 404 on this key. DeepSeek Flash works only
+through DeepSeek's own API (paid, $0.15/$0.60 per M off-peak).
 
-| query | time | reply |
-|---|---|---|
-| say ready | 0.67s | `L × ready` |
-| hello | 1.05s | `L ×  Hi, how can I assist you with your Android game modding` |
-| what is a JNI hook | 2.26s | `L ×  A JNI hook is a mechanism that lets you intercept…` |
-| hello world in python | 3.72s | `L ×` + correct code block |
-| count to 3 | 1.69s | `L × 1\n2\n3` |
-| streaming | 0.88s | clean SSE chunks |
+## Quality comparison
 
-**vs z.ai free:** 40–140s per call. This is ~60x faster.
+Same question, hard modding problem:
 
-## Not working on a free key
+> My ImGui menu crashes the game on ARM64 when I open it. KittyMemory patch
+> applied fine. Give the 3 most likely causes, one line each on how to verify.
 
-| model | error |
-|---|---|
-| `z-ai/glm-5.3-flash` | hangs past 75s |
-| `deepseek-ai/deepseek-v4.1-flash` | hangs past 75s |
-| `nvidia/nemotron-3-super-120b-a12b` | 404 — function not found |
-| `google/gemma-4-31b-it` | 404 |
-| `moonshotai/kimi-k2.6` | 404 |
-| `deepseek-ai/deepseek-coder-6.7b-instruct` | 404 |
-| `minimaxai/minimax-m3.1-flash` | 503 content safety screening unavailable |
-| `openai/gpt-oss-20b` | times out |
-| `meta/llama-4-maverick-17b-128e-instruct` | 410 gone |
-| `qwen/qwen3.5-397b-a17b` | 410 gone |
+**nemotron-3-ultra-550b** (8.6s) — specific and actionable:
+1. ImGui context/frame not initialized — check `ImGui::GetCurrentContext()` and `NewFrame()` ordering
+2. Stack alignment violation in ARM64 trampoline — verify `((uintptr_t)sp & 0xF) == 0`
+3. EGL/OpenGL context mismatch — log `eglGetCurrentContext()` in the render hook
 
-The 404s suggest the catalogue is a global list while the free key is scoped to
-a subset. 410s are genuinely retired models. The hangs are the interesting
-failure — a model that accepts the request then never generates.
+**nemotron-3-nano-30b** (2.4s) — generic:
+1. Invalid memory access in render loop — check logcat for SIGSEGV
+2. ABI mismatch — `readelf -h libImGui.so` vs `getprop ro.product.cpu.abi`
+3. Threading — ImGui called off main thread
 
-## Free tier facts
+Both correct. The 550B names the actual APIs and the alignment check; the 30B
+gives generic triage. For real work, use the 550B.
 
-- no credit card
-- **phone verification required** (SMS)
-- ~40 RPM, model-specific, not guaranteed
-- **no documented daily token cap** — the differentiator vs Gemini
-- key valid 6 months, renew in dashboard
-- rate limits are per-model; a 429 is normal on popular models
+**minimax-m3.1-flash** returned an empty string on this test — same failure mode
+as z.ai with thinking enabled. Skip it.
 
-## The model's quirk
-
-Nemotron Nano is a **reasoning** model — it emits `reasoning_content` alongside
-`content`, always, and there is no documented switch to turn it off (unlike
-z.ai's `thinking: {"type":"disabled"}`).
-
-Measured reasoning overhead is small — 23–42 tokens on short queries — so it
-costs a second or two, not the empty-reply disaster that z.ai has. The proxy
-passes it through; opencode reads `content` and ignores the rest.
-
-## Config used
+## Recommendation
 
 ```python
 "nvidia": (
     "https://integrate.api.nvidia.com/v1/chat/completions",
-    "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning",
+    "nvidia/nemotron-3-ultra-550b-a55b",
     {},
 ),
 ```
 
-`ORDER = ["nvidia", "gemini", "mistral", "deepseek", "zai"]` — nvidia first,
-z.ai last because it's slow.
+Free, no card, 0.6–1.8s on short prompts, 8.6s on a real 700-token answer, and
+it produces the best technical answers of anything tested in this whole project.
