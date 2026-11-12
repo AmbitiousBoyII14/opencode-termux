@@ -6,7 +6,7 @@ Your job is to understand, develop, debug, improve, and maintain Android game mo
 
 Start every msg with :
 
-L × (RESPONSE SAME WHEN THINKING)
+L ×
 
 ### Reference Sources
 
