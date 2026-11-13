@@ -1,20 +1,20 @@
 #!/bin/sh
+# backup.sh v2 - no /tmp, no TMPDIR, no guessing.
 # Back up everything worth keeping OUT of Termux, to shared storage.
-# Survives uninstall / reinstall / factory reset of the Termux app.
 set -e
+echo "backup.sh v2 ($(date +%H:%M:%S))"
 
 DEST="$HOME/storage/shared/levi-backup"
 STAMP=$(date +%Y%m%d-%H%M)
 
-# Android's /tmp is root-owned and NOT writable. Termux uses $TMPDIR
-# (= $PREFIX/tmp). Fall back to ~/.cache if even that is missing.
-TMPROOT="${TMPDIR:-${PREFIX:-/data/data/com.termux/files/usr}/tmp}"
-if [ ! -d "$TMPROOT" ] || [ ! -w "$TMPROOT" ]; then
-  TMPROOT="$HOME/.cache"
-fi
-mkdir -p "$TMPROOT" 2>/dev/null || { echo "!! no writable temp dir"; exit 1; }
-WORK="$TMPROOT/levi-bk-$STAMP"
-mkdir -p "$WORK" || { echo "!! cannot write $WORK"; exit 1; }
+# Never use /tmp or $TMPDIR - both can point at Android's root-owned /tmp.
+# $HOME is always writable inside Termux. .cache is created if missing.
+mkdir -p "$HOME/.cache" 2>/dev/null || true
+WORK="$HOME/.cache/levi-bk-$STAMP"
+rm -rf "$WORK" 2>/dev/null || true
+mkdir -p "$WORK/opencode" "$WORK/zai" || {
+  echo "!! cannot create $WORK"; exit 1; }
+echo "staging in $WORK"
 
 if [ ! -d "$HOME/storage/shared" ]; then
   echo "!! shared storage not mounted."
@@ -65,7 +65,7 @@ for d in "$HOME/storage/downloads" "$HOME/projects" "$HOME/mod" "$HOME/storage/s
 done
 
 echo "==> packing"
-tar -czf "$DEST/levi-backup-$STAMP.tar.gz" -C "$TMPROOT" "levi-bk-$STAMP"
+tar -czf "$DEST/levi-backup-$STAMP.tar.gz" -C "$HOME/.cache" "levi-bk-$STAMP"
 rm -rf "$WORK"
 
 OUT="$DEST/levi-backup-$STAMP.tar.gz"
