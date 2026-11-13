@@ -120,6 +120,16 @@ ACTIVE = [n for n in ORDER if n in KEYS]
 
 OPENER = "L \u00d7"
 
+def _relabel(raw, model_id):
+    """Make the response advertise the model the client asked for."""
+    try:
+        d = json.loads(raw)
+        d["model"] = model_id
+        return json.dumps(d).encode()
+    except Exception:
+        return raw
+
+
 def _fix_opener(raw):
     """Guarantee the reply starts with the persona opener, even if the model forgot."""
     try:
@@ -290,7 +300,26 @@ class Handler(BaseHTTPRequestHandler):
         body_out_source = body
 
         last_err = None
-        for provider in ACTIVE:
+        # The client (opencode) picks a label; honour it. Reply with that label
+        # so the picker and /models show which backend actually answered.
+        requested = str(body.get("model") or "").lower()
+        forced = None
+        if "deepseek" in requested:
+            forced = "deepseek"
+        elif "nemotron" in requested or "nvidia" in requested:
+            forced = "nvidia"
+        elif "gemini" in requested:
+            forced = "gemini"
+        elif "mistral" in requested:
+            forced = "mistral"
+        elif "glm" in requested or "zai" in requested:
+            forced = "zai"
+        order = ([forced] + [p for p in ACTIVE if p != forced]) if forced in ACTIVE else ACTIVE
+        if forced and forced not in ACTIVE:
+            log(f"  asked for {forced} but no key for it - using fallback order")
+        reply_model = requested or "levi"
+
+        for provider in order:
             url, model, extra = PROVIDERS[provider]
             payload = dict(body_out_source)
             payload["model"] = model
@@ -341,7 +370,8 @@ class Handler(BaseHTTPRequestHandler):
 
                 log(f"  served by {provider} ({model}) in {dt:.1f}s")
                 _record_usage(provider, raw)
-                return self._send(200, _fix_opener(raw))
+                log(f"  -> answered with model label '{reply_model}'")
+                return self._send(200, _relabel(_fix_opener(raw), reply_model))
 
         self._send(503, {"error": {
             "message": f"all providers failed. last: {last_err}",

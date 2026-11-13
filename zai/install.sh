@@ -41,14 +41,18 @@ cat > "$OCDIR/opencode.json" <<'JSON'
       "name": "Levi",
       "options": { "baseURL": "http://127.0.0.1:8080/v1", "apiKey": "unused" },
       "models": {
-        "glm-4.7-flash": {
-          "name": "Levi (Nemotron)",
+        "deepseek-flash": {
+          "name": "Levi - DeepSeek (paid)",
+          "limit": { "context": 131072, "output": 8192 }
+        },
+        "nemotron-ultra": {
+          "name": "Levi - Nemotron 550B (free)",
           "limit": { "context": 131072, "output": 8192 }
         }
       }
     }
   },
-  "model": "levi/glm-4.7-flash"
+  "model": "levi/deepseek-flash"
 }
 JSON
 echo "    $OCDIR/opencode.json"
