@@ -29,7 +29,21 @@ SRC=$(ls -d "$WORK"/levi-bk-* | head -1)
 mkdir -p "$HOME/.config/opencode" "$HOME/.local/share/opencode" "$HOME/zai"
 
 if [ -f "$SRC/opencode/opencode.db" ]; then
+  # CRITICAL: opencode runs in WAL mode. The .db alone can be completely
+  # EMPTY - all data lives in opencode.db-wal until checkpointed.
+  # Copy all three files together or the db restores with no tables.
   cp "$SRC/opencode/opencode.db" "$HOME/.local/share/opencode/opencode.db"
+  for ext in -wal -shm; do
+    [ -f "$SRC/opencode/opencode.db$ext" ] && \
+      cp "$SRC/opencode/opencode.db$ext" "$HOME/.local/share/opencode/opencode.db$ext"
+  done
+  if command -v sqlite3 >/dev/null 2>&1; then
+    sqlite3 "$HOME/.local/share/opencode/opencode.db" \
+      "PRAGMA wal_checkpoint(TRUNCATE);" >/dev/null 2>&1 || true
+    SESS=$(sqlite3 "$HOME/.local/share/opencode/opencode.db" \
+      "select count(*) from session;" 2>/dev/null || echo "")
+    [ -n "$SESS" ] && echo "    sessions found: $SESS"
+  fi
   echo "    chat database restored ($(du -h "$HOME/.local/share/opencode/opencode.db" | cut -f1))"
 fi
 [ -f "$SRC/opencode/opencode.json" ] && cp "$SRC/opencode/opencode.json" "$HOME/.config/opencode/" && echo "    opencode.json restored"
