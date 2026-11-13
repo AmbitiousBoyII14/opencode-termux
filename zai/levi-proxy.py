@@ -56,10 +56,14 @@ PROVIDERS = {
         "mistral-large-latest",
         {},
     ),
+    # V4.1-Flash. {"thinking":{"type":"disabled"}} is MANDATORY: with thinking
+    # on it burns the whole max_tokens on reasoning_content and content is "".
+    # `effort` (low/high/max) does NOT fix it - tested, all still empty.
     "deepseek": (
         "https://api.deepseek.com/v1/chat/completions",
-        "deepseek-chat",
-        {},
+        "deepseek-flash",
+        ({} if os.environ.get("LEVI_THINKING") == "1"
+         else {"thinking": {"type": "disabled"}}),
     ),
     "zai": (
         "https://api.z.ai/api/paas/v4/chat/completions",
@@ -69,7 +73,7 @@ PROVIDERS = {
 }
 
 # tried first-to-last; z.ai last because it's slow
-ORDER = ["nvidia", "gemini", "mistral", "deepseek", "zai"]
+ORDER = ["deepseek", "nvidia", "gemini", "mistral", "zai"]
 
 
 def _load_keys():

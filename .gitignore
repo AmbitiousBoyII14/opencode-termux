@@ -1,2 +1,5 @@
 zai/zai-key.txt
+zai/keys.txt
 zai/*.log
+__pycache__/
+*.pyc
