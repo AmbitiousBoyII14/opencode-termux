@@ -45,7 +45,11 @@ PROVIDERS = {
     "nvidia": (
         "https://integrate.api.nvidia.com/v1/chat/completions",
         "nvidia/nemotron-3-ultra-550b-a55b",   # best answer quality, 1-9s
-        {"chat_template_kwargs": {"enable_thinking": False}},  # 2.5x faster, no empty replies
+        # thinking OFF by default: reasoning eats the output budget at large
+        # context and the reply comes back empty. Run with LEVI_THINKING=1 to
+        # turn it back on.
+        ({} if os.environ.get("LEVI_THINKING") == "1"
+         else {"chat_template_kwargs": {"enable_thinking": False}}),
     ),
     "mistral": (
         "https://api.mistral.ai/v1/chat/completions",
