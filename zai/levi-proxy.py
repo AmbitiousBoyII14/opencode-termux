@@ -45,7 +45,7 @@ PROVIDERS = {
     "nvidia": (
         "https://integrate.api.nvidia.com/v1/chat/completions",
         "nvidia/nemotron-3-ultra-550b-a55b",   # best answer quality, 1-9s
-        {},
+        {"chat_template_kwargs": {"enable_thinking": False}},  # 2.5x faster, no empty replies
     ),
     "mistral": (
         "https://api.mistral.ai/v1/chat/completions",
@@ -105,6 +105,38 @@ SYSTEM_PROMPT = _load_prompt()
 ACTIVE = [n for n in ORDER if n in KEYS]
 
 
+OPENER = "L \u00d7"
+
+def _fix_opener(raw):
+    """Guarantee the reply starts with the persona opener, even if the model forgot."""
+    try:
+        d = json.loads(raw)
+        ch = d.get("choices") or []
+        if not ch:
+            return raw
+        msg = ch[0].get("message") or {}
+        c = msg.get("content")
+        if not isinstance(c, str) or not c.strip():
+            return raw
+        head = c.lstrip()[:12]
+        if OPENER in head or "L \u00d7" in head:
+            return raw
+        msg["content"] = OPENER + "\n\n" + c.lstrip()
+        return json.dumps(d).encode()
+    except Exception:
+        return raw
+
+
+def _is_empty_reply(raw):
+    """True when the model returned no visible text (reasoning ate the budget)."""
+    try:
+        d = json.loads(raw)
+        msg = (d.get("choices") or [{}])[0].get("message") or {}
+        return not (msg.get("content") or "").strip()
+    except Exception:
+        return False
+
+
 def log(*a):
     print(*a, file=sys.stderr, flush=True)
 
@@ -123,18 +155,70 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(raw)
 
-    def _stream(self, resp, provider):
+    def _stream(self, resp, provider, model=""):
         self.send_response(resp.status)
         self.send_header("Content-Type", resp.headers.get("Content-Type", "text/event-stream"))
         self.send_header("Cache-Control", "no-cache")
         self.send_header("Transfer-Encoding", "chunked")
         self.end_headers()
+
+        sent_opener = False
+        pending = ""
+        buf = b""
+
+        def emit(ev):
+            self.wfile.write(b"%x\r\n%s\r\n" % (len(ev), ev))
+            self.wfile.flush()
+
         while True:
             chunk = resp.read(2048)
             if not chunk:
                 break
-            self.wfile.write(b"%x\r\n%s\r\n" % (len(chunk), chunk))
-            self.wfile.flush()
+            buf += chunk
+            # process complete SSE events only
+            while b"\n\n" in buf:
+                ev, buf = buf.split(b"\n\n", 1)
+                ev += b"\n\n"
+                if sent_opener:
+                    emit(ev)
+                    continue
+                data = None
+                for line in ev.split(b"\n"):
+                    if line.startswith(b"data: "):
+                        data = line[6:].strip()
+                if not data or data == b"[DONE]":
+                    emit(ev)            # keep keep-alives / terminators flowing
+                    continue
+                try:
+                    d = json.loads(data)
+                    ch = d.get("choices") or []
+                    if not ch:
+                        emit(ev)
+                        continue
+                    delta = ch[0].get("delta") or {}
+                    c = delta.get("content")
+                    if c and not sent_opener:
+                        pending += c          # buffer until we can judge the opener
+                        if len(pending.lstrip()) < 12:
+                            continue          # not enough yet, decide later
+                        body_txt = pending.lstrip()
+                        if not body_txt.startswith(OPENER):
+                            pending = OPENER + "\n\n" + body_txt
+                        delta["content"] = pending
+                        pending = ""
+                        sent_opener = True
+                        emit(b"data: " + json.dumps(d).encode() + b"\n\n")
+                        continue
+                    if delta.get("reasoning_content") and not c and not sent_opener:
+                        continue              # swallow reasoning preamble
+                    emit(ev)
+                except Exception:
+                    emit(ev)
+        if pending:
+            emit(b"data: " + json.dumps({"choices":[{"delta":{"content":pending},
+                  "index":0,"finish_reason":None}]}).encode() + b"\n\n")
+        if buf:
+            emit(buf)
         self.wfile.write(b"0\r\n\r\n")
         self.wfile.flush()
 
@@ -207,10 +291,20 @@ class Handler(BaseHTTPRequestHandler):
                     continue
 
                 dt = time.time() - t0
-                log(f"  served by {provider} ({model}) in {dt:.1f}s")
                 if stream:
-                    return self._stream(resp, provider)
-                return self._send(200, resp.read())
+                    log(f"  served by {provider} ({model}) in {dt:.1f}s")
+                    return self._stream(resp, provider, model)
+
+                raw = resp.read()
+                if _is_empty_reply(raw) and attempt < 2:
+                    old_mt = payload.get("max_tokens") or 0
+                    payload["max_tokens"] = min(32768, max(4096, old_mt * 4))
+                    log(f"  {provider} empty content (budget eaten by reasoning) "
+                        f"-> retry max_tokens {old_mt}->{payload['max_tokens']}")
+                    continue
+
+                log(f"  served by {provider} ({model}) in {dt:.1f}s")
+                return self._send(200, _fix_opener(raw))
 
         self._send(503, {"error": {
             "message": f"all providers failed. last: {last_err}",

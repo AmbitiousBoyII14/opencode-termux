@@ -77,3 +77,69 @@ as z.ai with thinking enabled. Skip it.
 
 Free, no card, 0.6–1.8s on short prompts, 8.6s on a real 700-token answer, and
 it produces the best technical answers of anything tested in this whole project.
+
+---
+
+## THE BIG ONE: empty replies at large context (fixed 2026-11-13)
+
+This is the bug that looked like "Nemotron crashed". It is not a crash — it is
+the reasoning model silently eating the entire output budget.
+
+### Reproduction (deterministic, 100%)
+
+At **~80K tokens of context**, on BOTH nvidia models:
+
+| max_tokens | content | reasoning | finish_reason |
+|---|---|---|---|
+| 64 | **0 chars** | 253 | `length` |
+| 128 | **0 chars** | 522 | `length` |
+| 300 | **0 chars** | 1174 | `length` |
+| 1024 | 1861 | 1125 | `stop` |
+| 8192 | 3292 | 1686 | `stop` |
+
+The model spends every single token on `reasoning_content`, hits `max_tokens`,
+and returns `content: ""`. opencode renders that as a build that did nothing
+or as utter garbage. **The failure is proportional to context size: at 5K
+tokens you never see it, at 80K you see it every time.**
+
+### Two independent fixes, both now in the proxy
+
+**1. Disable thinking** — `chat_template_kwargs.enable_thinking: false`
+
+| flag | content | reasoning | time @80K |
+|---|---|---|---|
+| none | 0 | 1174 | 37.7s |
+| `chat_template_kwargs.enable_thinking: false` | 1752 | **0** | **17.7s** |
+| `thinking: {type: disabled}` | 2624 | 0 | 21.7s |
+| `reasoning_effort: none` | 2380 | 0 | 16.4s |
+| `reasoning_budget: 0` | 2865 | 0 | 30.7s |
+| `reasoning_effort: low` | 2526 | 1048 | 31.5s ← does NOT disable |
+
+All of these are accepted (no 400). `enable_thinking: false` is fastest.
+
+**2. Auto-retry with a bigger budget** — if `content` comes back empty, the
+proxy now retries with `max_tokens × 4` (capped 32768). Tested: 80K context
+with a 256-token client budget returns 951 chars in 10.7s instead of nothing.
+
+### Why the persona broke at long context too
+
+At 80K the model stopped emitting `L ×`. Fixed proxy-side: the opener is now
+injected into non-stream responses, and the SSE path buffers the first content
+delta until it can judge, then injects `L ×` if missing. Verified streaming
+at 80K: `L ×` once, no duplicate.
+
+### Verified after the fix
+
+| test | context | time | result |
+|---|---|---|---|
+| non-stream | 5K | 14.3s | `L ×` + real answer |
+| non-stream | 20K | 19.7s | `L ×` + real answer |
+| non-stream | 80K | 41.8s | `L ×` + real answer |
+| non-stream, 256-token budget | 80K | 8.3s | `L ×` + real answer |
+| **SSE stream** | 80K | **13.3s, first token 2.3s** | `L ×` once, clean |
+
+### Practical advice
+
+Keep opencode sessions under ~40K tokens and this never happens. The proxy now
+handles it if you don't, but long context is still slower and costs more of
+the model's attention.
