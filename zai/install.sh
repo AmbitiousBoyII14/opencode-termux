@@ -16,10 +16,14 @@ done
 
 echo "==> keys"
 if [ ! -s "$DIR/keys.txt" ]; then
-  cat > "$DIR/keys.txt" <<'KEYS'
-nvidia=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
-KEYS
-  echo "    keys.txt written (nvidia)"
+  # No keys are shipped in this script. Get your own:
+  #   nvidia   https://build.nvidia.com          (free, SMS verify)
+  #   deepseek https://platform.deepseek.com     ($2 min)
+  echo "    !! no ~/zai/keys.txt found"
+  echo "    Create it with one provider per line, e.g.:"
+  echo "      echo 'nvidia=nvapi-YOUR_KEY' >> ~/zai/keys.txt"
+  echo "      echo 'deepseek=sk-YOUR_KEY'  >> ~/zai/keys.txt"
+  echo "    Then run this installer again."
 else
   echo "    keys.txt kept"
 fi
