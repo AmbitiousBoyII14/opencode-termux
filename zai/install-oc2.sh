@@ -42,6 +42,19 @@ say "pointing the ELF interpreter at Termux's glibc loader"
 patchelf --set-interpreter "$GLIBC/ld-linux-aarch64.so.1" "$BIN" || die "patchelf failed"
 ok "interpreter patched"
 
+say "fixing Termux's libc.so linker-script trap"
+# Bun dlopen()s "libc.so" at startup. Termux ships glibc's libc.so as a TEXT
+# linker script (GROUP ( libc.so.6 )), so dlopen fails with
+#   "libc.so: invalid ELF header"
+# Point libc.so at the real shared object instead.
+if [ -f "$GLIBC/libc.so" ] && ! head -c 4 "$GLIBC/libc.so" 2>/dev/null | grep -q ELF; then
+  cp -f "$GLIBC/libc.so" "$GLIBC/libc.so.script" 2>/dev/null || true
+  ln -sf libc.so.6 "$GLIBC/libc.so"
+  ok "libc.so -> libc.so.6 (was a linker script)"
+else
+  ok "libc.so already a real ELF"
+fi
+
 say "writing launcher"
 cat > "$PREFIX/bin/opencode" <<'LAUNCH'
 #!/data/data/com.termux/files/usr/bin/sh
