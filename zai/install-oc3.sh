@@ -64,7 +64,10 @@ if [ ! -x "$GLIBC/ld-linux-aarch64.so.1" ]; then
   echo "opencode: glibc missing - pkg install glibc-repo && pkg install glibc glibc-runner" >&2
   exit 1
 fi
-exec "$GLIBC/ld-linux-aarch64.so.1" --library-path "$GLIBC:$OPT" "$OPT/opencode" "$@"
+# termux-exec's LD_PRELOAD is a bionic lib; it breaks glibc binaries with
+# "version `LIBC' not found". Scrub it before exec.
+exec env -u LD_PRELOAD -u LD_LIBRARY_PATH \
+  "$GLIBC/ld-linux-aarch64.so.1" --library-path "$GLIBC:$OPT" "$OPT/opencode" "$@"
 LAUNCH
 chmod +x "$PREFIX/bin/opencode"
 ok "$PREFIX/bin/opencode"
