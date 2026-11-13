@@ -5,7 +5,16 @@ set -e
 
 DEST="$HOME/storage/shared/levi-backup"
 STAMP=$(date +%Y%m%d-%H%M)
-WORK="/tmp/levi-bk-$STAMP"
+
+# Android's /tmp is root-owned and NOT writable. Termux uses $TMPDIR
+# (= $PREFIX/tmp). Fall back to ~/.cache if even that is missing.
+TMPROOT="${TMPDIR:-${PREFIX:-/data/data/com.termux/files/usr}/tmp}"
+if [ ! -d "$TMPROOT" ] || [ ! -w "$TMPROOT" ]; then
+  TMPROOT="$HOME/.cache"
+fi
+mkdir -p "$TMPROOT" 2>/dev/null || { echo "!! no writable temp dir"; exit 1; }
+WORK="$TMPROOT/levi-bk-$STAMP"
+mkdir -p "$WORK" || { echo "!! cannot write $WORK"; exit 1; }
 
 if [ ! -d "$HOME/storage/shared" ]; then
   echo "!! shared storage not mounted."
@@ -56,8 +65,7 @@ for d in "$HOME/storage/downloads" "$HOME/projects" "$HOME/mod" "$HOME/storage/s
 done
 
 echo "==> packing"
-cd /tmp
-tar -czf "$DEST/levi-backup-$STAMP.tar.gz" "levi-bk-$STAMP"
+tar -czf "$DEST/levi-backup-$STAMP.tar.gz" -C "$TMPROOT" "levi-bk-$STAMP"
 rm -rf "$WORK"
 
 OUT="$DEST/levi-backup-$STAMP.tar.gz"

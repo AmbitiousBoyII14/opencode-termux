@@ -14,7 +14,10 @@ LATEST=$(ls -t "$DEST"/levi-backup-*.tar.gz 2>/dev/null | head -1)
 [ -n "$LATEST" ] || { echo "!! no levi-backup-*.tar.gz in $DEST"; exit 1; }
 
 echo "==> restoring from $(basename "$LATEST")"
-WORK=$(mktemp -d)
+TMPROOT="${TMPDIR:-${PREFIX:-/data/data/com.termux/files/usr}/tmp}"
+[ -d "$TMPROOT" ] && [ -w "$TMPROOT" ] || TMPROOT="$HOME/.cache"
+mkdir -p "$TMPROOT"
+WORK=$(mktemp -d "$TMPROOT/levi-restore.XXXXXX")
 tar -xzf "$LATEST" -C "$WORK"
 SRC=$(ls -d "$WORK"/levi-bk-* | head -1)
 
