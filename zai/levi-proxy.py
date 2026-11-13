@@ -78,6 +78,9 @@ ORDER = ["deepseek", "nvidia", "gemini", "mistral", "zai"]
 # Cheap mode: clamp the output budget. 0 = leave the client's value alone.
 # Output tokens are the dominant cost at small context ($1.20/M vs $0.006/M cached input).
 MAX_TOKENS_CAP = int(os.environ.get("LEVI_MAX_TOKENS", "0") or 0)
+# Above this much prompt text the request is almost certainly a compaction/
+# summary job - it must be allowed a bigger reply than a normal chat turn.
+SUMMARISE_HINT_CHARS = int(os.environ.get("LEVI_SUMMARISE_CHARS", "40000") or 0)
 USAGE_LOG = os.path.join(os.path.dirname(os.path.abspath(__file__)), "levi-usage.log")
 
 
@@ -293,8 +296,16 @@ class Handler(BaseHTTPRequestHandler):
         body.pop("model", None)          # provider decides
         if body.get("max_tokens") is None:
             body.setdefault("max_tokens", 4096)
-        if MAX_TOKENS_CAP and (body.get("max_tokens") or 0) > MAX_TOKENS_CAP:
+        _raw_mt = body.get("max_tokens")
+        if MAX_TOKENS_CAP and (_raw_mt or 0) > MAX_TOKENS_CAP:
             body["max_tokens"] = MAX_TOKENS_CAP
+            _ctx_chars = sum(len(str(m.get("content") or "")) for m in body["messages"])
+            # A summarisation request needs room to summarise. A flat clamp
+            # truncates it and the client retries forever.
+            if _ctx_chars > SUMMARISE_HINT_CHARS:
+                body["max_tokens"] = min(_raw_mt or 8192, 16384)
+                log(f"  big context ({_ctx_chars} chars) -> max_tokens "
+                    f"{_raw_mt} clamped to {body['max_tokens']} (not {MAX_TOKENS_CAP})")
         stream = bool(body.get("stream"))
         # keep client happy: it asked for a model name it knows
         body_out_source = body
