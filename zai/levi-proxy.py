@@ -75,6 +75,11 @@ PROVIDERS = {
 # tried first-to-last; z.ai last because it's slow
 ORDER = ["deepseek", "nvidia", "gemini", "mistral", "zai"]
 
+# Cheap mode: clamp the output budget. 0 = leave the client's value alone.
+# Output tokens are the dominant cost at small context ($1.20/M vs $0.006/M cached input).
+MAX_TOKENS_CAP = int(os.environ.get("LEVI_MAX_TOKENS", "0") or 0)
+USAGE_LOG = os.path.join(os.path.dirname(os.path.abspath(__file__)), "levi-usage.log")
+
 
 def _load_keys():
     keys = {}
@@ -133,6 +138,27 @@ def _fix_opener(raw):
         return json.dumps(d).encode()
     except Exception:
         return raw
+
+
+def _record_usage(provider, raw):
+    """Append real token usage + cost to levi-usage.log (used by burn.sh)."""
+    try:
+        d = json.loads(raw)
+        u = d.get("usage") or {}
+        pt = u.get("prompt_tokens") or 0
+        ct = u.get("completion_tokens") or 0
+        hit = u.get("prompt_cache_hit_tokens") or 0
+        miss = u.get("prompt_cache_miss_tokens") or max(0, pt - hit)
+        if provider == "deepseek":
+            cost = (miss * 0.30 + hit * 0.006 + ct * 1.20) / 1e6
+        else:
+            cost = 0.0
+        rec = {"t": int(time.time()), "p": provider, "in": pt, "out": ct,
+               "hit": hit, "cost": round(cost, 8)}
+        with open(USAGE_LOG, "a") as f:
+            f.write(json.dumps(rec) + "\n")
+    except Exception:
+        pass
 
 
 def _is_empty_reply(raw):
@@ -257,6 +283,8 @@ class Handler(BaseHTTPRequestHandler):
         body.pop("model", None)          # provider decides
         if body.get("max_tokens") is None:
             body.setdefault("max_tokens", 4096)
+        if MAX_TOKENS_CAP and (body.get("max_tokens") or 0) > MAX_TOKENS_CAP:
+            body["max_tokens"] = MAX_TOKENS_CAP
         stream = bool(body.get("stream"))
         # keep client happy: it asked for a model name it knows
         body_out_source = body
@@ -312,6 +340,7 @@ class Handler(BaseHTTPRequestHandler):
                     continue
 
                 log(f"  served by {provider} ({model}) in {dt:.1f}s")
+                _record_usage(provider, raw)
                 return self._send(200, _fix_opener(raw))
 
         self._send(503, {"error": {
