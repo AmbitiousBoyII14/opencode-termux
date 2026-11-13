@@ -43,10 +43,20 @@ else
   echo "    skipping chat restore"
 fi
 
+fetch() {  # fetch <url> <outfile>
+  if command -v curl >/dev/null 2>&1 && curl -fsSL -o "$2" "$1" 2>/dev/null; then return 0; fi
+  if command -v wget >/dev/null 2>&1 && wget -qO "$2" "$1" 2>/dev/null; then return 0; fi
+  if command -v python3 >/dev/null 2>&1 && python3 -c "
+import sys,urllib.request
+urllib.request.urlretrieve(sys.argv[1], sys.argv[2])
+" "$1" "$2" 2>/dev/null; then return 0; fi
+  return 1
+}
+
 echo "==> pulling proxy + scripts"
 RAW="https://raw.githubusercontent.com/AmbitiousBoyII14/opencode-termux/main/zai"
 for f in levi-proxy.py start.sh cheap.sh burn.py install-models.sh; do
-  curl -fsSL -o "$HOME/zai/$f" "$RAW/$f" && echo "    $f"
+  fetch "$RAW/$f" "$HOME/zai/$f" && echo "    $f" || echo "    !! $f failed (no curl/wget/python?)"
 done
 chmod +x "$HOME/zai/start.sh" "$HOME/zai/cheap.sh" 2>/dev/null || true
 
